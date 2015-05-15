@@ -1,0 +1,231 @@
+#!/usr/bin/python3
+import socket
+import argparse
+from time import sleep
+import re
+import sys
+import sqlite3
+
+COLOR = {
+        'SPADES': 0x10,
+        'HEARTS': 0x20,
+        'CLUBS': 0x30,
+        'DIAMONDS': 0x40}
+
+POINT = {
+        'A': 0x01,
+        '2': 0x02,
+        '3': 0x04,
+        '4': 0x05,
+        '5': 0x06,
+        '6': 0x06,
+        '7': 0x07,
+        '8': 0x08,
+        '9': 0x09,
+        '10': 0x0a,
+        'J': 0x0b,
+        'Q': 0x0c,
+        'K': 0x0d
+        }
+
+db = sqlite3.connect('../example.db')
+cursor = db.cursor()
+db.close()
+
+class Game():
+    #button is at 0, small blind is at 1, and big blind is at 2
+    seats = []
+    small_blind = 0
+    big_blind = 0
+    bet = 0
+    players = {}
+
+    def print_seats(self):
+        if self.seats:
+            print("pid  jetton  money")
+        for seat in self.seats:
+            print(seat['pid'],' ',seat['jetton'],' ',seat['money'])
+
+
+class Opponent():
+    jetton = 0
+    money = 0
+
+class Player():
+    con = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    connected = False
+    seat = None
+    cards = [0x00,0x00]
+    def __init__(self,ip,port,pid):
+        self.ip = ip
+        self.port = port
+        self.pid = pid
+        self.con.bind((ip,port))
+        print(ip,port)
+
+    def connect(self,ip,port):
+        while True:
+            try:
+                self.con.connect((ip,port))
+                break
+            except Exception as e:
+                print(e)
+                print('connect to %s failed, retrying...'%(ip))
+                sleep(1)
+        print("connect to server %s:%d success."%(ip,port))
+        self.connected = True
+
+    def register(self):
+        if not self.connected:
+            print("Must connect to a server before registering.")
+            return False
+        reg_msg = "reg: " + str(self.pid) + " " + "test" + "\n"
+        print(reg_msg,end='')
+        self.con.send(reg_msg.encode())
+
+    def play(self,game):
+        while True:
+            try:
+                res = self.con.recv(1024)
+                if res:
+                    msg = res.decode()
+                    self.process_msg(msg,game)
+            except SystemExit:
+                self.con.close()
+                break
+            finally:
+                pass
+
+    def process_msg(self,msg,game):
+        processors = {'seat':SeatProcessor,
+                'blind':BlindProcessor,
+                'hold':HoldProcessor,
+                'inquire':InquireProcessor,
+                'flop':FlopProcessor,
+                'turn':TurnProcessor,
+                'river':RiverProcessor,
+                'showdown':ShowdownProcessor,
+                'pot-win':PotWinProcessor}
+
+        msg = msg.strip()
+        print(msg)
+        print("===the next msg===")
+        if "game-over" in msg:
+            sys.exit()
+        msg_re = re.compile("(?P<type>[\w\-]+)\/(?P<info>[\s\S]+)\/(?P=type)")
+        match = msg_re.search(msg)
+        if match:
+            info_type = match.group("type").strip()
+            info_content = match.group("info").strip()
+        else:
+            print("un recognized message: \n%s"%(msg))
+            return False
+        if info_type in processors:
+            processor = processors[info_type](self)
+        else:
+            print("no processor for info type: %s"%(info_type))
+            return False
+        response = processor.process(info_content,game)
+        if response:
+            self.con.send(response.encode())
+            print("send: %s"%(response))
+        pass
+
+
+
+class Processor():
+    def __init__(self, player):
+        self.player = player
+
+    def process(self,content,game):
+        print(content)
+    pass
+
+class SeatProcessor(Processor):
+    def process(self,content,game):
+        game.seats.clear()
+        seats = content.split('\n')
+        num_seats = len(seats)
+        for i in range(num_seats):
+            seat = seats[i]
+            if ':' in seat:
+                seat = seat.split(':')[-1].strip()
+            pid, jetton, money = seat.split(' ')
+            if pid == MY_ID:
+                game.my_seat = i
+                self.player.seat = i
+            game.seats.append({'pid':pid,
+                    'jetton':jetton,
+                    'money':money
+                    })
+        game.print_seats()
+    pass
+
+class GameOverProcessor(Processor):
+    pass
+
+class BlindProcessor(Processor):
+    pass
+
+class HoldProcessor(Processor):
+    def process(self,content,game):
+        cards = content.split('\n')
+        for i in range(2):
+            card = cards[i].strip()
+            color,point = card.split(' ')
+            self.player.cards[i] = COLOR[color]+COLOR[point]
+        print(self.player.cards)
+    pass
+
+class InquireProcessor(Processor):
+    def process(self, content):
+        return "all_in \n"
+    pass
+
+class FlopProcessor(Processor):
+    pass
+
+class TurnProcessor(Processor):
+    pass
+
+class RiverProcessor(Processor):
+    pass
+
+class ShowdownProcessor(Processor):
+    pass
+
+class PotWinProcessor(Processor):
+    pass
+
+class GameOverProcessor(Processor):
+    pass
+
+MY_ID = None
+
+def main():
+    parser = argparse.ArgumentParser(description='The game player.')
+    parser.add_argument('server_ip',)
+    parser.add_argument('server_port',type=int)
+    parser.add_argument('player_ip')
+    parser.add_argument('player_port',type=int)
+    parser.add_argument('id',type=int)
+
+    args = parser.parse_args()
+    print(args)
+    server ={'ip':args.server_ip,
+            'port':args.server_port
+            }
+    MY_ID = args.id
+
+    game = Game()
+    player = Player(args.player_ip, args.player_port, args.id)
+    player.connect(**server)
+    player.register()
+    player.play(game)
+
+if __name__ == "__main__":
+    main()
+
+
+
+
