@@ -171,6 +171,7 @@ class ReadyState(PlayerState):
             game.seats.clear()
             seats = msg.content.split('\n')
             num_seats = len(seats)
+            game.num_players = num_seats
             for i in range(num_seats):
                 seat = seats[i]
                 if ':' in seat:
@@ -182,7 +183,7 @@ class ReadyState(PlayerState):
                         'jetton':jetton,
                         'money':money
                         })
-                #TODO:            game.print_seats()
+            game.print_seats()
             return None
         elif msg.name == "blind":
             print(">blind")
@@ -281,8 +282,11 @@ class Game():
             0x00]
     turn = [0x00]
     river = [0x00]
-    pass
-
+    
+    def print_seats(self):
+        print("pid  jetton  money")
+        for seat in self.seats:
+            print(seat['pid'],seat['jetton'],seat['money'])
 
 
 class Player():
