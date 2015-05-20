@@ -63,6 +63,42 @@ class Card(object):
             b >>= 1
 
 
+def score7(cards):
+    if len(cards) != 7:
+        return None
+    return _lib.score7(*(c.bitmask for c in cards))
+
+def score5(cards):
+    if len(cards) != 5:
+        return None
+    return _lib.score5(*(c.bitmask for c in cards))
+
+
+def score2name(score):
+    tid = score >> 26
+    b1 = _mask2rank((score >> 13) & ((1 << 13) - 1))
+    b2 = _mask2rank(score & ((1 << 13) - 1))
+    if tid == 0:  # PAIR
+        return "High Card (%s)" % b2
+    if tid == 1:
+        return "Pair of %ss (%s)" % (b1, b2)
+    if tid == 2:
+        return "Two Pair (%s with %s kicker)" % (', '.join(b1), b2)
+    if tid == 3:
+        return "Three %ss (%s)" % (b1, b2)
+    if tid == 4:
+        return "Straight (%s high)" % b2[0]
+    if tid == 5:
+        return "Flush (%s)" % b2
+    if tid == 6:
+        return "Full House (%ss full of %ss)" % (b1, b2)
+    if tid == 7:
+        return "Four %ss (%s kicker)" % (b1, b2)
+    if tid == 8:
+        return "Straight Flush (%s high)" % b2[0]
+
+
+
 class Hand(object):
 
     def __init__(self, name=''):
@@ -183,38 +219,4 @@ def hand_name(score):
         return "Straight Flush (%s high)" % b2[0]
 
 
-def headsup(h1, h2, community=None):
-    """
-    Compute the probability that Hand 1 beats/loses to Hand 2 by
-    enumerating over all holdem games
 
-    Parameters
-    ----------
-    h1 : Hand
-       The first hand
-    h2 : Hand
-       The second hand
-    community : Hand (optional)
-       Any previously dealt community cards
-
-    Returns
-    -------
-    pwin, plose : (float, float)
-       The probability that h1 beats/loses to h2
-    """
-    community = community or Hand()
-    args = [c.bitmask for h in [h1, h2, community] for c in h._cards]
-    if len(community) == 0:
-        result = _lib.enumerate_headsup(*args)
-    elif len(community) == 3:
-        result = _lib.enumerate_headsup_flop(*args)
-    elif len(community) == 4:
-        result = _lib.enumerate_headsup_turn(*args)
-    else:
-        s1 = _lib.score7(*[c.bitmask for h in [h1, community]
-                         for c in h._cards])
-        s2 = _lib.score7(*[c.bitmask for h in [h2, community]
-                         for c in h._cards])
-        return float(s1 > s2), float(s1 < s2)
-
-    return result['pwin'], result['plose']
