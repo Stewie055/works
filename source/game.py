@@ -1,4 +1,5 @@
 #!/usr/bin/python
+#!encoding=utf-8
 from __future__ import print_function,unicode_literals,division
 import sys
 print(sys.version)
@@ -17,7 +18,7 @@ import sys
 import sqlite3
 import threading
 from holdme import Card,Hand,deck
-from strategy import PreFlopLoose,FlopLoose,TurnLoose,RiverLoose
+from strategy import PreFlopLoose,FlopLoose,TurnLoose,RiverLoose,make_cache,CACHE
 import logging
 
 logging.basicConfig(filename="game.log",level=logging.DEBUG)
@@ -266,6 +267,7 @@ class ReadyState(PlayerState):
             seats = msg.content.split('\n')
             num_seats = len(seats)
             game.num_players = num_seats
+            game.active_players.clear()
             for i in range(num_seats):
                 seat = seats[i]
                 if ':' in seat:
@@ -276,6 +278,7 @@ class ReadyState(PlayerState):
                 pid = int(pid)
                 jetton = int(jetton)
                 money = int(money)
+                game.active_players.add(pid)
                 if self.player.is_self(pid):
                     self.player.sit(i,jetton,money)
                 else:
@@ -289,6 +292,7 @@ class ReadyState(PlayerState):
                         'money':money
                         })
             game.sit()
+            print(game.active_players)
             game.print_seats()
             return None
         elif msg.name == "blind":
@@ -340,7 +344,7 @@ class HoldState(PlayerState):
                 card = cards[i].strip()
                 self.player.game.flop[i] = toCard(card)
             print(self.player.game.flop)
-            make_cache(self.game.flop,self.player.cards)
+            #make_cache(self.game.flop,self.player.cards)
             return "flop"
         elif "pot-win" == msg.name:
             return "ready"
@@ -362,6 +366,7 @@ class FlopState(PlayerState):
             card = msg.content.strip()
             self.player.game.turn = toCard(card)
             print(self.player.game.turn)
+            #make_cache(self.game.flop+[self.game.turn],self.player.cards)
             return "turn"
         elif "pot-win" == msg.name:
             return "ready"
@@ -386,6 +391,7 @@ class TurnState(PlayerState):
             card = msg.content.strip()
             self.player.game.river = toCard(card)
             print(self.player.game.river)
+            #make_cache(self.game.flop+[self.game.turn,self.game.river],self.player.cards)
             return "river"
         elif "pot-win" == msg.name:
             return "ready"
@@ -414,7 +420,8 @@ class RiverState(PlayerState):
 
 class Game():
     round_ = 0
-    alive_players = 0
+    active_players = set()
+    num_active_players = 0
     seats = []
     players = {}
     flop = [None, None, None]
@@ -424,12 +431,26 @@ class Game():
     bet = 0
     raise_bet = 0
 
+    @property
+    def community(self):
+        for c in self.flop:
+            if not c:
+                return None
+        cards = self.flop
+        if self.turn:
+            cards = cards + [self.turn]
+        if self.river:
+            cards = cards + [self.river]
+        return cards
+
     def sit(self):
         self.pot = 0
         self.bet = 0
         self.raise_bet = 0
+        self.turn = None
+        self.river = None
         print(type(self.seats))
-        self.alive_players = len(self.seats)
+        self.num_active_players = len(self.seats)
 
     def print_seats(self):
         print("pid  jetton  money")
@@ -455,6 +476,7 @@ class Game():
             return True
         else:
             return False
+
 
 class Player():
     cards = [None,None]
@@ -487,7 +509,9 @@ class Player():
 
     def act_fold(self, bet):
         self.set_bet(0)
-        self.game.alive_players -= 1
+        if self.pid in self.game.active_players:
+            self.game.num_active_players -= 1
+            self.game.active_players.remove(self.pid)
         pass
 
     def act_check(self, bet):
@@ -502,6 +526,7 @@ class Player():
     def act_all_in(self,bet):
         if bet!= self.jetton:
             print("Warning! The bet number didn't match!")
+            raise Exception
         self.bet = self.jetton
 
 class Snowden(Player):
@@ -530,7 +555,7 @@ class Snowden(Player):
 
     @property
     def pot_odds(self):
-        return self.bet/self.game.pot
+        return self.game.bet/(self.game.bet+self.game.pot)
 
     def is_self(self,pid):
         if self.pid == pid:
@@ -582,6 +607,7 @@ class Snowden(Player):
             print("Warning: bet didn't match")
             print("player bet:",self.bet)
             print("game bet:",self.game.bet)
+            raise Exception
 
     def raise_(self,num):
         if self.jetton > (num+self.bet):
@@ -625,15 +651,17 @@ def main():
     messager.connect(**server)
     player.set_state("ready")
     player.messager = messager
-    messager.start()
-    while not exit.is_set():
-        if msg_queue.empty():
-            continue
-        else:
-            msg = msg_queue.get()
-        #msg = process_msg(msg)
-            player.process(msg)
-
+    try:
+        messager.start()
+        while not exit.is_set():
+            if msg_queue.empty():
+                continue
+            else:
+                msg = msg_queue.get()
+            #msg = process_msg(msg)
+                player.process(msg)
+    except (KeyboardInterrupt, SystemExit):
+          print('\n! Received keyboard interrupt, quitting threads.\n')
 
 if __name__ == "__main__":
     main()
