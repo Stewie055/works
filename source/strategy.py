@@ -2,7 +2,6 @@
 #!encoding=utf-8
 from __future__ import print_function,unicode_literals,division
 import sys
-print(sys.version)
 is_py2 = (sys.version[0] == '2')
 is_py3 = (sys.version[0] == '3')
 if is_py2:

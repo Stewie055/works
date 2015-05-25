@@ -1,1 +1,4 @@
-/home/chzh/game/works/source/game.py
+#!/bin/bash
+cd ../source
+
+python game.py $1 $2 $3 $4 $5
