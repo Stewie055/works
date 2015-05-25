@@ -8,7 +8,7 @@ from ctypes import *
 RANKS = '23456789TJQKA'
 SUITS = 'CHSD'
 
-libc = cdll.LoadLibrary("./lib.so")
+libc = cdll.LoadLibrary("../libs/lib.so")
 
 class Card(object):
 
@@ -78,7 +78,7 @@ def prob_best(game,player):
     prob = libc.prob_best(community, num_community, hole, game.num_active_players)
     return prob
 
-def prob_best_after_flop(game,players):
+def prob_best_after_flop(game,player):
     '''
     计算自己的在翻牌成牌和听牌比其他人都大的概率
     '''
@@ -91,7 +91,7 @@ def prob_best_after_flop(game,players):
     return prob
 
 
-def prob_best_after_turn(game,players):
+def prob_best_after_turn(game,player):
     '''
     计算自己的成牌比其他人都大的概率
     '''
@@ -104,6 +104,12 @@ def prob_best_after_turn(game,players):
     return prob
 
 
+def cal_score(hand):
+    num_cards = len(hand)
+    cards = (c_long*num_cards)(*[c.bitmask for c in hand])
+    libc.cal_score.restype = c_int
+    score = libc.cal_score(cards, num_cards)
+    return score
 
 def score7(cards):
     if len(cards) != 7:
@@ -140,7 +146,7 @@ def score2name(score):
         return "Straight Flush (%s high)" % b2[0]
 
 
-
+#not use:
 class Hand(object):
 
     def __init__(self, name=''):

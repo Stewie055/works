@@ -15,10 +15,8 @@ import argparse
 from time import sleep
 import re
 import sys
-import sqlite3
-import threading
-from holdme import Card,deck,score5 as score5,score7
-from random import shuffle
+#from holdme import Card,deck,score5 as score5,score7
+from utils import Card, deck, cal_score, prob_best, prob_best_after_flop, prob_best_after_turn
 
 RANKS = '23456789TJQKA'
 SUITS = 'CHSD'
@@ -47,6 +45,8 @@ CALL_BET_PRE_FLOP = 100 #翻牌前弱牌最大跟注金额
 CACHE = {}
 
 class HoleCards():
+    MAX_TIER = 100
+
     def __init__(self,card_a,card_b):
         self.a = card_a
         self.b = card_b
@@ -69,7 +69,7 @@ class HoleCards():
         for i in table:
             if self.is_tier(i,table):
                 return i
-        return None
+        return self.MAX_TIER
 
     def is_tier(self,i,table):
         if self.ranks in table[i] or self.ranks+self.suits in table[i]:
@@ -105,15 +105,25 @@ class PreFlopLoose(Strategy):
             '''
             单挑
             '''
-            if self.hole.tier():
-                self.player.call()
+            if self.game.raise_bet < CALL_BET_PRE_FLOP:
+                if self.hole.tier():
+                    self.player.call()
+                    return
+                else:
+                    self.player.fold()
+                    return
             else:
-                self.player.fold()
+                if self.hole.tier() == 1:
+                    self.player.call()
+                    return
+                else:
+                    self.player.fold()
+                    return
         elif self.game.num_active_players == 3:
             if self.hole.tier():
                 if self.hole.tier() <= 1:
                     self.player.raise_(self.game.pot)
-                elif self.hole.tier() <= 5:
+                elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
                 elif self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
@@ -126,7 +136,7 @@ class PreFlopLoose(Strategy):
             if self.hole.tier():
                 if self.hole.tier() <= 2:
                     self.player.raise_(self.game.raise_bet)
-                elif self.hole.tier() <= 5:
+                elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
                 elif self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
@@ -138,7 +148,7 @@ class PreFlopLoose(Strategy):
 
         elif self.game.num_active_players <= 6:
             if self.hole.tier():
-                if self.hole.tier() <=5:
+                if self.hole.tier() <=1:
                     self.player.call()
                 elif self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
@@ -150,13 +160,13 @@ class PreFlopLoose(Strategy):
             if self.hole.tier():
                 if self.hole.tier() == 1:
                     self.player.call()
-                elif self.hole.tier() <= 3 and self.game.bet <300:
+                elif self.hole.tier() <= 3 and self.game.bet < CALL_BET_PRE_FLOP:
                     self.player.call()
                 elif self.game.raise_bet < CALL_BET_PRE_FLOP:
+                    print("raise bet",self.game.raise_bet)
                     self.player.call()
                 else:
                     self.player.fold()
-            self.player.fold()
 
 class FlopLoose(Strategy):
     plable_lev = 1
@@ -267,103 +277,6 @@ class RiverLoose(Strategy):
             self.player.fold()
         '''
 
-def prob_best(game,players):
-    '''
-    计算自己的成牌比其他人都大的概率
-    '''
-    kown_cards = players.cards + game.community
-    score = cal_score(kown_cards)
-    left_cards = [i for i in range(52)]
-    for c in kown_cards:
-        try:
-            left_cards.remove(c.index)
-        except ValueError:
-            print(c)
-            print(left_cards)
-    gt_count = 0
-    for i in range(TEST_TIME):
-        shuffle(left_cards)
-        same_value_count = 1
-        for p in range(game.num_active_players-1):
-            op_cards = [Card.from_index(left_cards[2*p]),Card.from_index(left_cards[2*p+1])]
-            op_score = cal_score(game.community+op_cards)
-            if op_score > score:
-                #print(game.community+player.cards)
-                #print(op_score)
-                break
-            elif op_score == score:
-                same_value_count += 1
-        else:
-            gt_count += 1/same_value_count
-    return gt_count/TEST_TIME
-
-
-def prob_best_after_flop(game,players):
-    '''
-    计算自己的在翻牌成牌和听牌比其他人都大的概率
-    '''
-    kown_cards = players.cards + game.community
-    left_cards = [i for i in range(52)]
-    for c in kown_cards:
-        try:
-            left_cards.remove(c.index)
-        except ValueError:
-            print(kown_cards,c)
-            print(c.index)
-            print(left_cards)
-    gt_count = 0
-    for i in range(TEST_TIME):
-        shuffle(left_cards)
-        community = game.community + [Card.from_index(left_cards[0]),Card.from_index(left_cards[1])]
-        score = cal_score(kown_cards)
-        same_value_count = 1
-        for p in range(game.num_active_players-1):
-            op_cards = [Card.from_index(left_cards[2*p+2]),Card.from_index(left_cards[2*p+3])]
-            op_score = cal_score(community+op_cards)
-            if op_score > score:
-                #print(game.community+player.cards)
-                #print(op_score)
-                break
-            elif op_score == score:
-                same_value_count += 1
-        else:
-            gt_count += 1/same_value_count
-    return gt_count/TEST_TIME
-
-def prob_best_after_turn(game,players):
-    '''
-    计算自己的成牌比其他人都大的概率
-    '''
-    kown_cards = players.cards + game.community
-    left_cards = [i for i in range(52)]
-    for c in kown_cards:
-        try:
-            left_cards.remove(c.index)
-        except ValueError:
-            print(kown_cards,c)
-            print(c.index)
-            print(left_cards)
-    gt_count = 0
-    for i in range(TEST_TIME):
-        shuffle(left_cards)
-        community = game.community + [Card.from_index(left_cards[0])]
-        score = cal_score(kown_cards)
-        same_value_count = 1
-        for p in range(game.num_active_players-1):
-            op_cards = [Card.from_index(left_cards[2*p+1]),Card.from_index(left_cards[2*p+2])]
-            op_score = cal_score(community+op_cards)
-            if op_score > score:
-                #print(game.community+player.cards)
-                #print(op_score)
-                break
-            elif op_score == score:
-                same_value_count += 1
-        else:
-            gt_count += 1/same_value_count
-    return gt_count/TEST_TIME
-
-
-
 
 
 def play_prob(game,player):
@@ -394,26 +307,6 @@ def isInsideStraight(cards):
         if (cards_bit & 0b1000000001111) == m:
             return True
     return False
-
-def score6(cards):
-    best_score = 0
-    for c in cards:
-        cards5 = cards[:]
-        cards5.remove(c)
-        score = score5(cards5)
-        if score > best_score:
-            best_score = score
-    return best_score
-
-def cal_score(cards):
-    if len(cards) == 5:
-        return score5(cards)
-    elif len(cards) ==6:
-        return score6(cards)
-    elif len(cards) == 7:
-        return score7(cards)
-    else:
-        return None
 
 def cal_prob_after_turn(outs):
     prob = (93*outs - outs*outs)/2162
@@ -483,13 +376,8 @@ class Hand():
     def __init__(self, cards):
         self.cards = cards
         num_cards = len(cards)
-        self.num_cards = num_cards
-        if num_cards == 5:
-            self.score = score5(cards)
-        elif num_cards == 6:
-            self.score = score6(cards)
-        elif num_cards == 7:
-            self.score = score7(cards)
+        if 5 <= num_cards and num_cards <= 7:
+            self.score = cal_score(cards)
         else:
             print(cards)
             print(num_cards)
@@ -551,7 +439,7 @@ def straight_out(cards):
             continue
         ncards = cards[:]
         ncards.append(card)
-        score = score5(ncards)
+        score = cal_score(ncards)
         type_lev = score >> 26
         if type_lev > 2:
             print(ncards)
@@ -561,56 +449,19 @@ class test():
     pass
 
 if __name__ == "__main__":
-    '''
-    test = {1:set([]),
-            2:set([]),
-            3:set([]),
-            4:set([]),
-            5:set([]),
-            6:set([])}
-    for i in range(52):
-        for j in range(i+1,52):
-            card_a = Card.from_index(i)
-            card_b = Card.from_index(j)
-            hole = HoleCards(card_a,card_b)
-            if hole.tier():
-                test[hole.tier()].add(hole.ranks+hole.suits)
-
-    print(test)
-
-    for i in range(52):
-        for j in range(i+1,52):
-            for k in range(j+1,52):
-                for l in range(k+1,52):
-                    cards = [Card.from_index(i),
-                            Card.from_index(j),
-                            Card.from_index(k),
-                            Card.from_index(l)]
-                    if isInsideStraight(cards):
-                        for c in cards:
-                            print(c,end='')
-                        print('\n')
-    '''
-    cards = [Card('TS'),Card('9s'),Card('8s'),Card('QC'),Card('2s')]
-    hand = Hand(cards)
-    print(hand)
-    print(hand.cal_outs())
     flop = [Card('8s'),Card('9s'),Card('Ts')]
-    hole = [Card('As'),Card('Js')]
-    hand = Hand(flop+hole)
-    #print(hand.cal_prob(2))
-    #print(cal_prob_gt_score(flop,hand.score))
-    #make_cache(flop,hole)
-    #print("now")
-    #print(prob_win(flop,hole,1,out=True))
-    #print(prob_win(flop,hole,2,out=True))
+    hole = [Card('2d'),Card('Qc')]
     game = test()
     game.community = flop
     player = test()
     player.cards = hole
     game.num_active_players = 2
     print(prob_best_after_flop(game,player))
-    #game.community.append(Card('Jh'))
-    #print(prob_best_after_turn(game,player))
-    #game.community.append(Card('Jd'))
-    #print(prob_best(game,player))
+    game.community.append(Card('2h'))
+    print(prob_best_after_turn(game,player))
+    game.community.append(Card('3d'))
+    print(prob_best(game,player))
+    for c in game.community:
+        print(c.index)
+    for c in hole:
+        print(c.index)

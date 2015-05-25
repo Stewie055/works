@@ -17,7 +17,7 @@ import re
 import sys
 import sqlite3
 import threading
-from holdme import Card,Hand,deck
+from utils import Card,Hand,deck
 from strategy import PreFlopLoose,FlopLoose,TurnLoose,RiverLoose,make_cache,CACHE
 import logging
 
@@ -209,24 +209,30 @@ def process_inquire(state, msg):
         print("can't find total pot in \n============",msg.content,"\n================")
 
     m_actions = re.finditer("(?P<pid>\d+) (?P<jetton>\d+) (?P<money>\d+) (?P<bet>\d+) (?P<action>blind|check|call|raise|all_in|fold)",msg.content)
+    m_actions = reversed(list(m_actions))
     for m in m_actions:
         pid = int(m.group("pid"))
         jetton = int(m.group("jetton"))
         money = int(m.group("money"))
         bet = int(m.group("bet"))
         action = m.group("action")
-        if state.game.bet < bet:
-            state.game.set_bet(bet)
+        #if action == "raise":
+        #    raise_bet = bet - state.game.bet
+        #    if raise_bet > state.game.raise_bet:
+        #        state.game.raise_bet = raise_bet
         print(pid,jetton,money,bet,action)
         if state.player.pid == pid:
             if state.player.bet != bet:
                 print("Warning: bet number did't match!")
                 print("player bet:",state.player.bet)
                 print("server bet:",bet)
+                raise Exception
         else:
             oppnent = state.game.players[pid]
             act = getattr(oppnent,'act_'+action)
             act(bet)
+        if state.game.bet < bet:
+            state.game.set_bet(bet)
     pass
 
 
@@ -261,9 +267,10 @@ class ReadyState(PlayerState):
     def check_msg(self, msg):
         game = self.player.game
         if "seat" == msg.name:
+            game.round_ += 1
+            print("============== round :",game.round_,"=================")
             print(">sit")
             del game.seats[:]
-            game.round_ += 1
             seats = msg.content.split('\n')
             num_seats = len(seats)
             game.num_players = num_seats
@@ -302,6 +309,7 @@ class ReadyState(PlayerState):
             pid=int(pid)
             bet=int(bet)
             game.small_blind = bet
+            game.raise_bet = 2*bet
             game.set_bet(bet)
             game.add_bet(bet)
             if pid == self.player.pid:
@@ -518,7 +526,7 @@ class Player():
         pass
 
     def act_raise(self,bet):
-        raise_bet = bet - self.bet #raise number
+        raise_bet = bet - self.game.bet #raise number
         if self.game.raise_bet < raise_bet:
             self.game.raise_bet = raise_bet
         self.bet = bet
@@ -528,6 +536,12 @@ class Player():
             print("Warning! The bet number didn't match!")
             raise Exception
         self.bet = self.jetton
+        print("DEBUG",self.game.bet,self.bet)
+        if self.game.bet < self.bet:
+            raise_bet = bet - self.game.bet
+            self.game.bet = bet
+            if self.game.raise_bet < raise_bet:
+                self.game.raise_bet = raise_bet
 
 class Snowden(Player):
     messager = None
@@ -612,8 +626,9 @@ class Snowden(Player):
     def raise_(self,num):
         if self.jetton > (num+self.bet):
             self.messager.raise_(num)
-            self.bet += num
-            print("raise:",num,"current bet:",self.game.bet)
+            self.bet = self.game.bet + num
+            print("DEBUG game bet",self.game.bet)
+            print("raise:",num,"current bet:",self.bet)
         else:
             self.all_in()
 
