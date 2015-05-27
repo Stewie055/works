@@ -18,7 +18,7 @@ import sys
 import sqlite3
 import threading
 from utils import Card,Hand,deck
-from strategy import PreFlopLoose,FlopLoose,TurnLoose,RiverLoose,make_cache,CACHE
+from strategy import Master, PreFlopLoose,FlopLoose,TurnLoose,RiverLoose,make_cache,CACHE
 import logging
 
 logging.basicConfig(filename="game.log",level=logging.DEBUG)
@@ -144,6 +144,7 @@ class Messager(threading.Thread):
                     sys.exit()
             except Exception as e:
                 print(e)
+                exit.set()
                 sys.exit()
         return None
 
@@ -226,7 +227,7 @@ def process_inquire(state, msg):
                 print("Warning: bet number did't match!")
                 print("player bet:",state.player.bet)
                 print("server bet:",bet)
-                raise Exception
+                #raise Exception
         else:
             oppnent = state.game.players[pid]
             act = getattr(oppnent,'act_'+action)
@@ -267,7 +268,9 @@ class ReadyState(PlayerState):
     def check_msg(self, msg):
         game = self.player.game
         if "seat" == msg.name:
+            # 初始化
             game.round_ += 1
+            self.player.rank = 1
             print("============== round :",game.round_,"=================")
             print(">sit")
             del game.seats[:]
@@ -293,6 +296,9 @@ class ReadyState(PlayerState):
                         opponent = Player(pid,game)
                     else:
                         opponent = game.players[pid]
+                        # calculate rank
+                        if (jetton+money)>(self.player.jetton+self.player.money):
+                            self.player.rank += 1
                     opponent.sit(i,jetton,money)
                 game.seats.append({'pid':pid,
                         'jetton':jetton,
@@ -309,6 +315,7 @@ class ReadyState(PlayerState):
             pid=int(pid)
             bet=int(bet)
             game.small_blind = bet
+            game.big_blind = bet
             game.raise_bet = 2*bet
             game.set_bet(bet)
             game.add_bet(bet)
@@ -323,6 +330,7 @@ class ReadyState(PlayerState):
                 game.add_bet(bet)
                 if pid == self.player.pid:
                     self.player.bet = bet
+                    self.is_big_blind = True
             return None
         elif msg.name == "hold":
             print(">hold")
@@ -343,8 +351,9 @@ class HoldState(PlayerState):
         if "inquire" == msg.name:
             print(">inquire")
             process_inquire(self,msg)
-            strategy = PreFlopLoose(self.game,self.player)
-            strategy.act()
+            self.player.master.preflop_act()
+            #strategy = PreFlopLoose(self.game,self.player)
+            #strategy.act()
         elif "flop" == msg.name:
             print(">flop\n")
             cards = msg.content.split('\n')
@@ -367,8 +376,9 @@ class FlopState(PlayerState):
         if "inquire" == msg.name:
             print(">inquire")
             process_inquire(self,msg)
-            strategy = FlopLoose(self.game,self.player)
-            strategy.act()
+            self.player.master.flop_act()
+            #strategy = FlopLoose(self.game,self.player)
+            #strategy.act()
         elif "turn" == msg.name:
             print(">turn\n")
             card = msg.content.strip()
@@ -391,8 +401,9 @@ class TurnState(PlayerState):
         if "inquire" == msg.name:
             print(">inquire")
             process_inquire(self,msg)
-            strategy = TurnLoose(self.game,self.player)
-            strategy.act()
+            self.player.master.turn_act()
+            #strategy = TurnLoose(self.game,self.player)
+            #strategy.act()
             pass
         elif "river" == msg.name:
             print(">river")
@@ -416,8 +427,9 @@ class RiverState(PlayerState):
         if "inquire" == msg.name:
             print(">inquire")
             process_inquire(self,msg)
-            strategy = RiverLoose(self.game,self.player)
-            strategy.act()
+            self.player.master.river_act()
+            #strategy = RiverLoose(self.game,self.player)
+            #strategy.act()
             pass
         elif "showdown" == msg.name:
             print(">showdown")
@@ -429,6 +441,7 @@ class RiverState(PlayerState):
 class Game():
     round_ = 0
     active_players = set()
+    num_players = 0
     num_active_players = 0
     seats = []
     players = {}
@@ -437,7 +450,10 @@ class Game():
     river = None
     pot = 0
     bet = 0
+#最小加注额
     raise_bet = 0
+    small_blind = 0
+    big_blind = 0
 
     @property
     def community(self):
@@ -473,7 +489,8 @@ class Game():
 
     def set_pot(self, pot):
         if type(pot) != int:
-            raise Exception
+            pass
+            #raise Exception
         self.pot = pot
 
     def set_bet(self, bet):
@@ -492,6 +509,8 @@ class Player():
     bet = 0
     jetton = 0
     money = 0
+    is_big_blind = False
+
 
     def __init__(self,pid,game):
         self.pid = pid
@@ -504,6 +523,7 @@ class Player():
         self.seat = seat
         self.jetton = jetton
         self.money = money
+        self.is_big_blind = False
 
     def set_bet(self, bet):
         self.bet = bet
@@ -534,7 +554,7 @@ class Player():
     def act_all_in(self,bet):
         if bet!= self.jetton:
             print("Warning! The bet number didn't match!")
-            raise Exception
+            #raise Exception
         self.bet = self.jetton
         print("DEBUG",self.game.bet,self.bet)
         if self.game.bet < self.bet:
@@ -545,6 +565,10 @@ class Player():
 
 class Snowden(Player):
     messager = None
+    is_big_blind = False
+    rank = 1
+    seat = 0 #在button下家多少位,0就是button
+
     def __init__(self,pid, game):
         self.pid = pid
         self.game = game
@@ -566,6 +590,15 @@ class Snowden(Player):
         self.add_state(turn_state)
         self.add_state(river_state)
         self.set_state("prepare")
+
+        self.master = Master(game, self)
+
+    def sit(self, seat, jetton,money):
+        self.bet = 0
+        self.seat = seat
+        self.jetton = jetton
+        self.money = money
+        self.is_big_blind = False
 
     @property
     def pot_odds(self):
@@ -597,15 +630,23 @@ class Snowden(Player):
 
     #TODO: check bet and actions
     def fold(self):
-        self.messager.send('fold \n')
-        print("fold")
-        self.set_state("ready")
+        # don't need to add bet, so just check, don't fold
+        if self.bet >= self.game.bet:
+            self.check()
+            return
+        else:
+            self.messager.send('fold \n')
+            print("fold")
+            self.set_state("ready")
+            return
 
     def check(self):
         if self.bet >= self.game.bet:
             self.messager.check()
+            return
         else:
             self.call()
+            return
 
     def call(self):
         if self.bet < self.game.bet:
@@ -621,7 +662,8 @@ class Snowden(Player):
             print("Warning: bet didn't match")
             print("player bet:",self.bet)
             print("game bet:",self.game.bet)
-            raise Exception
+            self.bet = self.game.bet
+            #raise Exception
 
     def raise_(self,num):
         if self.jetton > (num+self.bet):
@@ -638,8 +680,9 @@ class Snowden(Player):
         print("all in:",self.jetton,"current bet:",self.game.bet)
 
     def pre_flop_bet(self):
-        strategy = PreFlopLoose(self.game,self)
-        strategy.act()
+        #strategy = PreFlopLoose(self.game,self)
+        #strategy.act()
+        self.master.preflop_act()
 
     def action(self):
         self.call()

@@ -16,6 +16,7 @@ import re
 import sys
 #from holdme import Card,deck,score5 as score5,score7
 from utils import Card, deck, cal_score, prob_best, prob_best_after_flop, prob_best_after_turn
+from random import random,randint
 
 RANKS = '23456789TJQKA'
 SUITS = 'CHSD'
@@ -40,8 +41,15 @@ PHIL = {1:['AA','KK','QQ'],
 
 
 TEST_TIME = 3000 #概率计算次数
-CALL_BET_PRE_FLOP = 100 #翻牌前弱牌最大跟注金额
+CALL_BET_PRE_FLOP = 150 #翻牌前弱牌最大跟注金额
+RAISE_BET_PRE_FLOP = 300 #翻牌前与对方火拼的最大注额
+PROB_IN_STANDBY = 0.92 #极度消极策略中加注的最低胜率
+FOLDABLE = 110#消极策略中盖牌的对方加注额
+
+TOTAL_ROUND = 600
 CACHE = {}
+
+#TODO: opponents' player style
 
 class HoleCards():
     MAX_TIER = 100
@@ -76,15 +84,92 @@ class HoleCards():
         return False
 
 
+
+class Master():
+    preflop = {}
+    flop = {}
+    turn = {}
+    river = {}
+    style = None
+
+    def __init__(self, game, player):
+        self.game = game
+        self.player = player
+        self.style = "loose"
+
+    # Add strategies
+
+        self.preflop['loose'] = PreFlopLoose(game, player)
+        self.preflop['tightpassive'] = PreFlopTightPassive(game, player)
+        self.preflop['standby'] = PreFlopStandBy(game, player)
+
+        self.flop['loose'] = FlopLoose(game, player)
+        self.flop['tightpassive'] = FlopTightPassive(game, player)
+        self.flop['standby'] = FlopStandBy(game, player)
+
+
+        self.turn['loose'] = TurnLoose(game, player)
+        self.turn['tightpassive'] = TurnTightPassive(game, player)
+        self.turn['standby'] = TurnStandBy(game, player)
+
+        self.river['loose'] = RiverLoose(game, player)
+        self.river['tightpassive'] = RiverTightPassive(game, player)
+        self.river['standby'] = RiverStandBy(game, player)
+
+    def switch(self,style):
+        self.style = style
+
+    def pre_action(self):
+        if self.can_stand_by():
+            self.switch("standby")
+        else:
+            self.switch("tightpassive")
+
+    def preflop_act(self):
+        self.pre_action()
+        self.preflop[self.style].act()
+        pass
+
+    def flop_act(self):
+        self.pre_action()
+        self.flop[self.style].act()
+        pass
+
+    def turn_act(self):
+        self.pre_action()
+        self.turn[self.style].act()
+        pass
+
+    def river_act(self):
+        self.pre_action()
+        self.river[self.style].act()
+        pass
+
+    def can_stand_by(self):
+        game = self.game
+        player = self.player
+        res_round = TOTAL_ROUND - game.round_
+        num_alive_players = game.num_players
+        print("res round",res_round,"current money",player.money+player.jetton)
+        print("rank", player.rank)
+        if player.rank <= 4 and ((player.money+player.jetton) - res_round * 1.5 * game.big_blind /num_alive_players) > 4000:
+            print("Can live")
+            return True
+        else:
+            print("!!!Can NOT live")
+            return False
+
 class Strategy():
 
     def __init__(self, game, player):
         self.game = game
         self.player = player
+        '''
         if player.cards[0] and player.cards[1]:
             self.hole = HoleCards(player.cards[0],player.cards[1])
         else:
             print("Warning! the player must hold 2 cards")
+            '''
 
     def act(self):
         pass
@@ -92,11 +177,17 @@ class Strategy():
     def learn():
         pass
 
+
+
 class PreFlopLoose(Strategy):
     play_tier = 5 #PLAYTIER
     raise_tier = 1 #RAISETIER
 
     def act(self):
+        if self.player.cards[0] and self.player.cards[1]:
+            self.hole = HoleCards(self.player.cards[0],self.player.cards[1])
+        else:
+            print("Warning! the player must hold 2 cards")
         print("active playres:",self.game.num_active_players)
         if self.game.num_active_players == 1:
             self.player.call()
@@ -106,14 +197,21 @@ class PreFlopLoose(Strategy):
             '''
             if self.game.raise_bet < CALL_BET_PRE_FLOP:
                 if self.hole.tier():
-                    self.player.call()
+                    r = random()
+                    if r>0.4:
+                        self.player.raise_(self.game.raise_bet*randint(1,3))
+                    else:
+                        self.player.call()
                     return
                 else:
-                    self.player.fold()
+                    if r>0.8:
+                        self.player.raise_(self.game.raise_bet*randint(1,3))
+                    else:
+                        self.player.fold()
                     return
             else:
                 if self.hole.tier() == 1:
-                    self.player.call()
+                    self.player.raise_(self.game.pot)
                     return
                 else:
                     self.player.fold()
@@ -124,7 +222,7 @@ class PreFlopLoose(Strategy):
                     self.player.raise_(self.game.pot)
                 elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
-                elif self.game.raise_bet < CALL_BET_PRE_FLOP:
+                elif self.game.bet < CALL_BET_PRE_FLOP:
                     self.player.call()
                 else:
                     self.player.fold()
@@ -133,11 +231,11 @@ class PreFlopLoose(Strategy):
 
         elif self.game.num_active_players == 4:
             if self.hole.tier():
-                if self.hole.tier() <= 2:
+                if self.hole.tier() <= 1:
                     self.player.raise_(self.game.raise_bet)
                 elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
                     self.player.call()
-                elif self.game.raise_bet < CALL_BET_PRE_FLOP:
+                elif self.game.bet < CALL_BET_PRE_FLOP:
                     self.player.call()
                 else:
                     self.player.fold()
@@ -149,7 +247,7 @@ class PreFlopLoose(Strategy):
             if self.hole.tier():
                 if self.hole.tier() <=1:
                     self.player.call()
-                elif self.game.raise_bet < CALL_BET_PRE_FLOP:
+                elif self.game.bet < CALL_BET_PRE_FLOP:
                     self.player.call()
                 else:
                     self.player.fold()
@@ -161,7 +259,7 @@ class PreFlopLoose(Strategy):
                     self.player.call()
                 elif self.hole.tier() <= 3 and self.game.bet < CALL_BET_PRE_FLOP:
                     self.player.call()
-                elif self.game.raise_bet < CALL_BET_PRE_FLOP:
+                elif self.game.bet < CALL_BET_PRE_FLOP:
                     print("raise bet",self.game.raise_bet)
                     self.player.call()
                 else:
@@ -172,22 +270,29 @@ class FlopLoose(Strategy):
 
     def __init__(self,game, player):
         Strategy.__init__(self, game, player)
-        self.hand = Hand(self.game.flop+self.player.cards)
-        self.pot_odds = self.player.pot_odds
         #self.prob = self.hand.cal_prob(self.plable_lev)
         #self.prob_win = prob_win(game.cards, player.cards, game.alive_oponents)
 
     def act(self):
+        self.hand = Hand(self.game.flop+self.player.cards)
+        self.pot_odds = self.player.pot_odds
         print("active playres:",self.game.num_active_players)
         #self.prob_win = prob_win(self.game.flop, self.player.cards, self.game.num_active_players-1,out=True)
         self.prob = prob_best_after_flop(self.game,self.player)
+        print("prob best after flop", self.prob)
+        print("pot odds", self.pot_odds)
         if self.game.num_active_players <=4 :
-            if self.prob >= 0.6:
+            if self.prob >= 0.8:
                 self.player.all_in()
                 return
         RR = self.prob/self.pot_odds
         if RR > 1.3:
-            self.player.raise_(self.game.raise_bet)
+            if self.game.round_ >= 3:
+                self.player.call()
+                return
+            else:
+                self.player.raise_(self.game.raise_bet)
+                return
         elif RR > 1:
             #self.player.raise_(self.game.raise_bet)
             self.player.call()
@@ -200,17 +305,19 @@ class TurnLoose(Strategy):
 
     def __init__(self, game, player):
         Strategy.__init__(self, game, player)
+
+    def act(self):
         cards = self.game.flop + self.player.cards
         cards.append(self.game.turn)
         self.hand = Hand(cards)
         self.pot_odds = self.player.pot_odds
-
-    def act(self):
         print("active playres:",self.game.num_active_players)
         #self.prob_win = prob_win(self.game.flop+[self.game.turn], self.player.cards, self.game.num_active_players-1,out=True)
         self.prob = prob_best_after_turn(self.game,self.player)
+        print("prob best after turn", self.prob)
+        print("pot odds", self.pot_odds)
         if self.game.num_active_players <=4 :
-            if self.prob >= 0.6:
+            if self.prob >= 0.8:
                 self.player.all_in()
                 return
         RR = self.prob/self.pot_odds
@@ -220,7 +327,7 @@ class TurnLoose(Strategy):
             #self.player.raise_(self.game.raise_bet)
             self.player.call()
             #or call
-        elif self.game.raise_bet < 22200:
+        elif self.game.raise_bet < 200:
             self.player.check()
         else:
             self.player.fold()
@@ -230,15 +337,17 @@ class RiverLoose(Strategy):
 
     def __init__(self, game, player):
         Strategy.__init__(self, game, player)
+
+    def act(self):
         cards = self.game.community
         self.hand = Hand(cards)
         self.pot_odds = self.player.pot_odds
-
-    def act(self):
         print("active playres:",self.game.num_active_players)
         #self.prob_win = prob_win(self.game.flop+[self.game.turn,self.game.river], self.player.cards, self.game.num_active_players-1)
         #hand = Hand(self.game.community+self.player.cards)
         self.prob = prob_best(self.game,self.player)
+        print("prob best after river", self.prob)
+        print("pot odds", self.pot_odds)
         if self.prob > self.pot_odds or self.prob > (1/self.game.num_active_players):
             self.player.call()
             return
@@ -275,6 +384,396 @@ class RiverLoose(Strategy):
         else:
             self.player.fold()
         '''
+
+def bluffable(game,player):
+    return False
+
+def bluff(game,player):
+    self.player.all_in()
+
+class PreFlopTightPassive(Strategy):
+    play_tier = 5 #PLAYTIER
+    raise_tier = 1 #RAISETIER
+
+    def act(self):
+        if self.player.cards[0] and self.player.cards[1]:
+            self.hole = HoleCards(self.player.cards[0],self.player.cards[1])
+        else:
+            print("Warning! the player must hold 2 cards")
+        print("active playres:",self.game.num_active_players)
+        if self.game.num_active_players == 1:
+            self.player.call()
+        if self.game.num_active_players == 2:
+            '''
+            单挑
+            '''
+            if self.game.raise_bet < CALL_BET_PRE_FLOP:
+                if self.hole.tier():
+                    self.player.call()
+                    return
+                else:
+                    self.player.fold()
+                    return
+            else:
+                if self.hole.tier() == 1:
+                    self.player.call()
+                    return
+                else:
+                    self.player.fold()
+                    return
+
+        elif self.game.num_active_players == 3 or self.game.num_active_players == 4:
+            if self.hole.tier():
+                if self.hole.tier() <= 1:
+                    r = random()
+                    if r>0.2:
+                        self.player.raise_(self.game.raise_bet)
+                        return
+                    else:
+                        self.player.call()
+                        return
+                elif self.hole.tier() <= 3:
+                    r = random()
+                    if r>0.2*self.hole.tier():
+                        self.player.raise_(self.game.raise_bet)
+                        return
+                    else:
+                        self.player.fold()
+                        return
+                elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
+                    r = random()
+                    if r>0.7:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                elif self.game.raise_bet < CALL_BET_PRE_FLOP:
+                    r = random()
+                    if r>0.9:
+                        print("raise bet",self.game.raise_bet)
+                        self.player.raise_(self.game.raise_bet)
+                        return
+                    elif r>0.8:
+                        self.player.call()
+                        return
+                    else:
+                        self.player.fold()
+                        return
+                else:
+                    self.player.fold()
+                    return
+            else:
+                self.player.fold()
+                return
+            pass
+
+        elif self.game.num_active_players <= 6:
+            if self.hole.tier():
+                if self.hole.tier() <=1:
+                    self.player.call()
+                elif self.hole.tier() and self.game.raise_bet < CALL_BET_PRE_FLOP:
+                    r = random()
+                    if r>0.2*self.hole.tier():
+                        print("raise bet",self.game.raise_bet)
+                        self.player.raise_(self.game.raise_bet)
+                        return
+                    elif r>0.1*self.hole.tier():
+                        self.player.fold()
+                        return
+                    else:
+                        self.player.call()
+                else:
+                    self.player.fold()
+            else:
+                self.player.fold()
+        elif self.game.num_active_players > 6:
+            if self.hole.tier():
+                if self.hole.tier() == 1:
+                    self.player.call()
+                elif self.hole.tier() <= 3 and self.game.bet < CALL_BET_PRE_FLOP:
+                    self.player.call()
+                elif self.hole.tier() and self.game.raise_bet < CALL_BET_PRE_FLOP:
+                    r = random()
+                    if r>0.6:
+                        print("raise bet",self.game.raise_bet)
+                        self.player.raise_(self.game.raise_bet)
+                        return
+                    elif r>0.2:
+                        self.player.call()
+                        return
+                    else:
+                        self.player.fold()
+                elif self.game.bet < CALL_BET_PRE_FLOP:
+                    r = random()
+                    if r>0.9:
+                        print("raise bet",self.game.raise_bet)
+                        self.player.raise_(self.game.raise_bet)
+                        return
+                    elif r>0.6:
+                        self.player.call()
+                        return
+                    else:
+                        self.player.fold()
+                else:
+                    self.player.fold()
+
+class FlopTightPassive(Strategy):
+    plable_lev = 1
+
+    def __init__(self,game, player):
+        Strategy.__init__(self, game, player)
+        #self.prob = self.hand.cal_prob(self.plable_lev)
+        #self.prob_win = prob_win(game.cards, player.cards, game.alive_oponents)
+
+    def act(self):
+        self.hand = Hand(self.game.flop+self.player.cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        #self.prob_win = prob_win(self.game.flop, self.player.cards, self.game.num_active_players-1,out=True)
+        self.prob = prob_best_after_flop(self.game,self.player)
+        print("prob best after flop", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.prob >= 0.9:
+            r = random()
+            if r>0.2:
+                self.player.raise_(self.game.pot)
+            else:
+                self.player.call()
+            return
+        if self.game.raise_bet >= FOLDABLE:
+            self.player.fold()
+            return
+        RR = self.prob/self.pot_odds
+        if RR > 1.3:
+            r = random()
+            if r>0.4:
+                self.player.raise_(self.game.raise_bet)
+            else:
+                self.player.call()
+            return
+        elif RR > 1:
+            r = random()
+            if r>0.9:
+                self.player.raise_(self.game.raise_bet)
+            elif r>0.2:
+                self.player.call()
+            else:
+                self.player.fold()
+            return
+            #or call
+        else:
+            r = random()
+            #TODO: caution enemies
+            if r>0.9:
+                if bluffable(self.game,self.player):
+                    bluff(self.game,self.player)
+                    return
+                else:
+                    self.player.raise_(self.game.pot)
+                    return
+            elif r>0.7:
+                self.player.call()
+            else:
+                self.player.fold()
+
+class TurnTightPassive(Strategy):
+    plable_lev = 1
+
+    def __init__(self, game, player):
+        Strategy.__init__(self, game, player)
+
+    def act(self):
+        cards = self.game.flop + self.player.cards
+        cards.append(self.game.turn)
+        self.hand = Hand(cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best_after_turn(self.game,self.player)
+        print("prob best after turn", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.prob >= 0.9:
+            r = random()
+            if r>0.7:
+                self.player.raise_(self.game.pot*3)
+            elif r>0.4:
+                self.player.raise_(self.game.pot)
+            elif r>0.2:
+                self.player.raise_(self.game.raise_bet)
+            else:
+                self.player.call()
+            return
+
+        if self.game.raise_bet >= FOLDABLE:
+            self.player.fold()
+            return
+        RR = self.prob/self.pot_odds
+        if RR > 1.3:
+            r = random()
+            if r>0.8:
+                self.player.raise_(self.game.raise_bet)
+            else:
+                self.player.call()
+                return
+        elif RR > 1:
+            #self.player.raise_(self.game.raise_bet)
+            r = random()
+            if r>0.9:
+                self.player.raise_(self.game.raise_bet)
+            elif r>0.2:
+                self.player.call()
+            else:
+                self.player.fold()
+            return
+            #or call
+        else:
+            r = random()
+            #TODO: caution enemies
+            if r>0.9:
+                self.player.raise_(self.game.pot)
+                return
+            elif r>0.7:
+                self.player.call()
+            else:
+                self.player.fold()
+            return
+
+
+class RiverTightPassive(Strategy):
+
+    def __init__(self, game, player):
+        Strategy.__init__(self, game, player)
+
+    def act(self):
+        cards = self.game.community
+        self.hand = Hand(cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best(self.game,self.player)
+        print("prob best after river", self.prob)
+        print("pot odds", self.pot_odds)
+
+        if self.prob >= 0.9:
+            r = random()
+            if r>0.7:
+                self.player.raise_(self.game.pot*3)
+            elif r>0.4:
+                self.player.raise_(self.game.pot)
+            elif r>0.2:
+                self.player.raise_(self.game.raise_bet)
+            else:
+                self.player.call()
+            return
+
+        if self.game.raise_bet >= FOLDABLE:
+            self.player.fold()
+            return
+
+        RR = self.prob/self.pot_odds
+        if RR > 1.3:
+            r = random()
+            if r>0.9:
+                self.player.raise_(self.game.raise_bet)
+            else:
+                self.player.call()
+                return
+        elif RR > 1:
+            #self.player.raise_(self.game.raise_bet)
+            r = random()
+            if r>0.9:
+                self.player.raise_(self.game.raise_bet)
+            elif r>0.2:
+                self.player.call()
+            else:
+                self.player.fold()
+            return
+            #or call
+        else:
+            r = random()
+            #TODO: caution enemies
+            if r>0.9:
+                self.player.raise_(self.game.pot)
+                return
+            elif r>0.7:
+                self.player.call()
+            else:
+                self.player.fold()
+            return
+
+
+
+#极度消极策略
+class PreFlopStandBy(Strategy):
+
+    def act(self):
+        if self.player.is_big_blind and self.game.bet <= self.game.big_blind:
+            self.player.check()
+        else:
+            self.player.fold()
+
+class FlopStandBy(Strategy):
+
+    def __init__(self,game, player):
+        Strategy.__init__(self, game, player)
+
+    def act(self):
+        self.hand = Hand(self.game.flop+self.player.cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best(self.game,self.player)
+        print("prob best after flop", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.game.bet <= self.player.bet:
+            self.player.check()
+        elif self.prob > PROB_IN_STANDBY:
+            self.player.raise_(self.game.raise_bet*randint(1,10))#TODO: specify it
+        else:
+            self.player.fold()
+
+class TurnStandBy(Strategy):
+
+    def __init__(self, game, player):
+        Strategy.__init__(self, game, player)
+
+    def act(self):
+        cards = self.game.flop + self.player.cards
+        cards.append(self.game.turn)
+        self.hand = Hand(cards)
+        self.pot_odds = self.player.pot_odds
+
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best(self.game,self.player)
+        print("prob best after turn", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.game.bet <= self.player.bet:
+            self.player.check()
+        elif self.prob > PROB_IN_STANDBY:
+            self.player.raise_(self.game.raise_bet*randint(1,10))#TODO: specify it
+        else:
+            self.player.fold()
+
+
+
+class RiverStandBy(Strategy):
+
+    def __init__(self, game, player):
+        Strategy.__init__(self, game, player)
+
+    def act(self):
+        cards = self.game.community
+        self.hand = Hand(cards)
+        self.pot_odds = self.player.pot_odds
+
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best(self.game,self.player)
+        print("prob best after river", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.game.bet <= self.player.bet:
+            self.player.check()
+        elif self.prob > PROB_IN_STANDBY:
+            self.player.raise_(self.game.raise_bet*randint(1,10))#TODO: specify it
+        else:
+            self.player.fold()
+
+
 
 
 
