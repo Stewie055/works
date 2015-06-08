@@ -211,6 +211,7 @@ def process_inquire(state, msg):
 
     m_actions = re.finditer("(?P<pid>\d+) (?P<jetton>\d+) (?P<money>\d+) (?P<bet>\d+) (?P<action>blind|check|call|raise|all_in|fold)",msg.content)
     m_actions = reversed(list(m_actions))
+    state.game.last_actions = []
     for m in m_actions:
         pid = int(m.group("pid"))
         jetton = int(m.group("jetton"))
@@ -229,9 +230,11 @@ def process_inquire(state, msg):
                 print("server bet:",bet)
                 #raise Exception
         else:
-            oppnent = state.game.players[pid]
-            act = getattr(oppnent,'act_'+action)
+            opponent = state.game.players[pid]
+            act = getattr(opponent,'act_'+action)
             act(bet)
+            if pid in state.game.active_players:
+                state.game.last_actions.append((action,bet,pid))
         if state.game.bet < bet:
             state.game.set_bet(bet)
     pass
@@ -248,6 +251,7 @@ class PlayerState():
         pass
 
     def entry_actions(self):
+        self.game.inquire_round = 0
         pass
 
     def exit_actions(self):
@@ -397,6 +401,9 @@ class TurnState(PlayerState):
         self.player = player
         self.game = player.game
 
+    def entry_actions(self):
+        self.game.inquire_round = 0
+
     def check_msg(self, msg):
         if "inquire" == msg.name:
             print(">inquire")
@@ -423,6 +430,9 @@ class RiverState(PlayerState):
         self.player = player
         self.game = player.game
 
+    def entry_actions(self):
+        self.game.inquire_round = 0
+
     def check_msg(self, msg):
         if "inquire" == msg.name:
             print(">inquire")
@@ -440,6 +450,7 @@ class RiverState(PlayerState):
 
 class Game():
     round_ = 0
+    inquire_round = 0 #询问圈数
     active_players = set()
     num_players = 0
     num_active_players = 0
@@ -454,6 +465,7 @@ class Game():
     raise_bet = 0
     small_blind = 0
     big_blind = 0
+    last_actions = []
 
     @property
     def community(self):

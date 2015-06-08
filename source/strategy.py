@@ -21,8 +21,8 @@ from random import random,randint
 RANKS = '23456789TJQKA'
 SUITS = 'CHSD'
 
-HOLE_CARDS = {1:['AA','KK','QQ','JJ','AKs'],
-        2:['TT','AQs','AJs','KQs','AKo'],
+HOLE_CARDS = {1:['AA','KK','QQ'],
+        2:['JJ','AKs','TT','AQs','AJs','KQs','AKo'],
         3:['99','ATs','KJs','QJs','JTs','AQo'],
         4:['88','KTs','QTs','J9s','T9s','98s','AJo','KQo'],
         5:['77','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','Q9s','T8s','97s','87s','76s','KJo','QJo','JTo'],
@@ -72,7 +72,7 @@ class HoleCards():
         else:
             return RANKS[self.b.rank] + RANKS[self.a.rank]
 
-    def tier(self,table=PHIL):
+    def tier(self,table=HOLE_CARDS):
         for i in table:
             if self.is_tier(i,table):
                 return i
@@ -102,28 +102,34 @@ class Master():
         self.preflop['loose'] = PreFlopLoose(game, player)
         self.preflop['tightpassive'] = PreFlopTightPassive(game, player)
         self.preflop['standby'] = PreFlopStandBy(game, player)
+        self.preflop['tightaggressive'] = PreFlopTightAggressive(game, player)
 
         self.flop['loose'] = FlopLoose(game, player)
         self.flop['tightpassive'] = FlopTightPassive(game, player)
         self.flop['standby'] = FlopStandBy(game, player)
-
+        self.flop['tightaggressive'] = FlopTightAggressive(game, player)
 
         self.turn['loose'] = TurnLoose(game, player)
         self.turn['tightpassive'] = TurnTightPassive(game, player)
         self.turn['standby'] = TurnStandBy(game, player)
+        self.turn['tightaggressive'] = TurnTightAggressive(game, player)
 
         self.river['loose'] = RiverLoose(game, player)
         self.river['tightpassive'] = RiverTightPassive(game, player)
         self.river['standby'] = RiverStandBy(game, player)
+        self.river['tightaggressive'] = RiverTightAggressive(game, player)
 
     def switch(self,style):
         self.style = style
 
     def pre_action(self):
+        #if self.game.num_players <= 4:
+        #    self.switch("loose")
         if self.can_stand_by():
             self.switch("standby")
         else:
-            self.switch("tightpassive")
+            self.switch("tightaggressive")
+        #self.switch("tightaggressive")
 
     def preflop_act(self):
         self.pre_action()
@@ -178,6 +184,481 @@ class Strategy():
         pass
 
 
+class PreFlopTightAggressive(Strategy):
+
+    def act(self):
+        if self.player.cards[0] and self.player.cards[1]:
+            self.hole = HoleCards(self.player.cards[0],self.player.cards[1])
+        else:
+            print("Warning! the player must hold 2 cards")
+        print("active playres:",self.game.num_active_players)
+        if self.game.num_players > 6:
+            behind = [0, 1, 2]
+            middle = [6, 7]
+            front = [3, 4, 5]
+        elif self.game.num_players > 4:
+            behind = [0, 1, 2]
+            middle = [5]
+            front = [3, 4]
+        else:
+            behind = [0, 1]
+            front = [2]
+            middle = [3]
+        if self.player.seat in behind: # button and blind
+            if self.hole.tier() == 1:
+                if self.game.inquire_round > 2:
+                    self.player.call()
+                    return
+                self.player.raise_(self.game.pot/2)
+                return
+            elif self.hole.tier() in [2, 3, 4]:
+                if self.game.inquire_round >= 2:
+                    self.player.call()
+                    return
+                else:
+                    if self.game.bet < 200:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                    return
+            elif self.hole.tier() in [5, 6, 7]:
+                if self.game.inquire_round >= 2:
+                    self.player.call()
+                    return
+                else:
+                    if self.game.bet < 100:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                    return
+            else:
+                self.player.fold()
+                return
+
+        elif self.player.seat in middle:
+            if self.hole.tier() == 1:
+                if self.game.inquire_round > 2:
+                    self.player.call()
+                    return
+                self.player.raise_(self.game.pot/2)
+                return
+            elif self.hole.tier() in [2, 3]:
+                if self.game.inquire_round >= 2:
+                    self.player.call()
+                    return
+                else:
+                    if self.game.bet < 200:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                    return
+            elif self.hole.tier() in [4,5,6]:
+                if self.game.inquire_round >= 2:
+                    self.player.call()
+                    return
+                else:
+                    if self.game.bet < 100:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                    return
+            else:
+                self.player.fold()
+                return
+
+        elif self.player.seat in front:
+            if self.hole.tier() == 1:
+                if self.game.inquire_round > 2:
+                    self.player.call()
+                    return
+                self.player.raise_(self.game.pot/2)
+                return
+            elif self.hole.tier() in [2, 3]:
+                if self.game.inquire_round >= 2:
+                    self.player.call()
+                    return
+                else:
+                    if self.game.bet < 200:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                    return
+            elif self.hole.tier() in [4,]:
+                if self.game.inquire_round >= 2:
+                    self.player.call()
+                    return
+                else:
+                    if self.game.bet < 100:
+                        self.player.raise_(self.game.raise_bet)
+                    else:
+                        self.player.fold()
+                    return
+            else:
+                self.player.fold()
+                return
+
+class FlopTightAggressive(Strategy):
+
+    def act(self):
+        self.hand = Hand(self.game.flop+self.player.cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        #self.prob_win = prob_win(self.game.flop, self.player.cards, self.game.num_active_players-1,out=True)
+        self.prob = prob_best_after_flop(self.game,self.player)
+        print("prob best after flop", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.game.num_players > 6:
+            behind = [0, 6, 7]
+            middle = [4, 5]
+            front = [1, 2, 3]
+        elif self.game.num_players > 4:
+            front = [1, 2]
+            middle = [3, 4]
+            behind = [0, 5]
+        else:
+            front = [1]
+            middle = [2, 3]
+            behind = [0]
+
+        if self.prob >= 0.9:
+            r = random()
+            if r>0.2:
+                self.player.raise_(self.game.pot*randint(1,10))
+            else:
+                self.player.call()
+            return
+
+        RR = self.prob/self.pot_odds
+        if self.player.seat in front:
+            if RR > 2.5:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.8:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+        elif self.player.seat in middle:
+            if RR > 2:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.5:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+
+        elif self.player.seat in behind:
+            if RR > 1.6:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.3:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+
+class TurnTightAggressive(Strategy):
+
+    def act(self):
+        self.hand = Hand(self.game.flop+self.player.cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best_after_turn(self.game,self.player)
+        print("prob best after flop", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.game.num_players > 6:
+            behind = [0, 6, 7]
+            middle = [4, 5]
+            front = [1, 2, 3]
+        elif self.game.num_players > 4:
+            front = [1, 2]
+            middle = [3, 4]
+            behind = [0, 5]
+        else:
+            front = [1]
+            middle = [2, 3]
+            behind = [0]
+
+        if self.prob >= 0.9:
+            r = random()
+            if r>0.2:
+                self.player.raise_(self.game.pot*randint(1,10))
+            else:
+                self.player.call()
+            return
+
+        RR = self.prob/self.pot_odds
+        if self.player.seat in front:
+            if RR > 2.5:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.8:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+        elif self.player.seat in middle:
+            if RR > 2:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.5:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+
+        elif self.player.seat in behind:
+            if RR > 1.6:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.3:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+
+
+class RiverTightAggressive(Strategy):
+
+    def act(self):
+        self.hand = Hand(self.game.flop+self.player.cards)
+        self.pot_odds = self.player.pot_odds
+        print("active playres:",self.game.num_active_players)
+        self.prob = prob_best(self.game,self.player)
+        print("prob best after flop", self.prob)
+        print("pot odds", self.pot_odds)
+        if self.game.num_players > 6:
+            behind = [0, 6, 7]
+            middle = [4, 5]
+            front = [1, 2, 3]
+        elif self.game.num_players > 4:
+            front = [1, 2]
+            middle = [3, 4]
+            behind = [0, 5]
+        else:
+            front = [1]
+            middle = [2, 3]
+            behind = [0]
+
+        if self.prob >= 0.9:
+            r = random()
+            if r>0.2:
+                self.player.raise_(self.game.pot*randint(1,10))
+            else:
+                self.player.call()
+            return
+
+        RR = self.prob/self.pot_odds
+        if self.player.seat in front:
+            if RR > 2.5:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.8:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+        elif self.player.seat in middle:
+            if RR > 2:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.5:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+
+        elif self.player.seat in behind:
+            if RR > 1.6:
+                r = random()
+                if r>0.4:
+                    self.player.raise_(self.game.raise_bet)
+                else:
+                    self.player.call()
+                return
+            elif RR > 1.3:
+                r = random()
+                if r>0.9:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.2:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            elif RR > 1:
+                r = random()
+                if r>0.95:
+                    self.player.raise_(self.game.raise_bet)
+                elif r>0.3:
+                    self.player.call()
+                else:
+                    self.player.fold()
+                return
+            else:
+                self.player.fold()
+                return
+
 
 class PreFlopLoose(Strategy):
     play_tier = 5 #PLAYTIER
@@ -191,79 +672,16 @@ class PreFlopLoose(Strategy):
         print("active playres:",self.game.num_active_players)
         if self.game.num_active_players == 1:
             self.player.call()
-        if self.game.num_active_players == 2:
-            '''
-            单挑
-            '''
-            if self.game.raise_bet < CALL_BET_PRE_FLOP:
-                if self.hole.tier():
-                    r = random()
-                    if r>0.4:
-                        self.player.raise_(self.game.raise_bet*randint(1,3))
-                    else:
-                        self.player.call()
-                    return
-                else:
-                    if r>0.8:
-                        self.player.raise_(self.game.raise_bet*randint(1,3))
-                    else:
-                        self.player.fold()
-                    return
-            else:
-                if self.hole.tier() == 1:
-                    self.player.raise_(self.game.pot)
-                    return
-                else:
-                    self.player.fold()
-                    return
-        elif self.game.num_active_players == 3:
-            if self.hole.tier():
-                if self.hole.tier() <= 1:
-                    self.player.raise_(self.game.pot)
-                elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
-                    self.player.call()
-                elif self.game.bet < CALL_BET_PRE_FLOP:
-                    self.player.call()
-                else:
-                    self.player.fold()
-            else:
-                self.player.fold()
-
-        elif self.game.num_active_players == 4:
-            if self.hole.tier():
-                if self.hole.tier() <= 1:
-                    self.player.raise_(self.game.raise_bet)
-                elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
-                    self.player.call()
-                elif self.game.bet < CALL_BET_PRE_FLOP:
-                    self.player.call()
-                else:
-                    self.player.fold()
-            else:
-                self.player.fold()
-            pass
-
-        elif self.game.num_active_players <= 6:
-            if self.hole.tier():
-                if self.hole.tier() <=1:
-                    self.player.call()
-                elif self.game.bet < CALL_BET_PRE_FLOP:
-                    self.player.call()
-                else:
-                    self.player.fold()
-            else:
-                self.player.fold()
-        elif self.game.num_active_players > 6:
-            if self.hole.tier():
-                if self.hole.tier() == 1:
-                    self.player.call()
-                elif self.hole.tier() <= 3 and self.game.bet < CALL_BET_PRE_FLOP:
-                    self.player.call()
-                elif self.game.bet < CALL_BET_PRE_FLOP:
-                    print("raise bet",self.game.raise_bet)
-                    self.player.call()
-                else:
-                    self.player.fold()
+            return
+        if self.game.bet > 200:
+            self.player.fold()
+            return
+        elif self.hole.tier() <= 8:
+            self.player.all_in()
+            return
+        else:
+            self.player.fold()
+            return
 
 class FlopLoose(Strategy):
     plable_lev = 1
@@ -391,9 +809,10 @@ def bluffable(game,player):
 def bluff(game,player):
     self.player.all_in()
 
+class PreFlopTightPassive(PreFlopTightAggressive):
+    pass
+'''
 class PreFlopTightPassive(Strategy):
-    play_tier = 5 #PLAYTIER
-    raise_tier = 1 #RAISETIER
 
     def act(self):
         if self.player.cards[0] and self.player.cards[1]:
@@ -404,9 +823,6 @@ class PreFlopTightPassive(Strategy):
         if self.game.num_active_players == 1:
             self.player.call()
         if self.game.num_active_players == 2:
-            '''
-            单挑
-            '''
             if self.game.raise_bet < CALL_BET_PRE_FLOP:
                 if self.hole.tier():
                     self.player.call()
@@ -427,7 +843,7 @@ class PreFlopTightPassive(Strategy):
                 if self.hole.tier() <= 1:
                     r = random()
                     if r>0.2:
-                        self.player.raise_(self.game.raise_bet)
+                        self.player.raise_(self.game.raise_bet*randint(1,10))
                         return
                     else:
                         self.player.call()
@@ -442,7 +858,7 @@ class PreFlopTightPassive(Strategy):
                         return
                 elif self.hole.tier() <= 5 and self.game.raise_bet < CALL_BET_PRE_FLOP:
                     r = random()
-                    if r>0.7:
+                    if r>0.5:
                         self.player.raise_(self.game.raise_bet)
                     else:
                         self.player.fold()
@@ -451,9 +867,6 @@ class PreFlopTightPassive(Strategy):
                     if r>0.9:
                         print("raise bet",self.game.raise_bet)
                         self.player.raise_(self.game.raise_bet)
-                        return
-                    elif r>0.8:
-                        self.player.call()
                         return
                     else:
                         self.player.fold()
@@ -493,28 +906,23 @@ class PreFlopTightPassive(Strategy):
                     self.player.call()
                 elif self.hole.tier() and self.game.raise_bet < CALL_BET_PRE_FLOP:
                     r = random()
-                    if r>0.6:
+                    if r>0.5:
                         print("raise bet",self.game.raise_bet)
                         self.player.raise_(self.game.raise_bet)
-                        return
-                    elif r>0.2:
-                        self.player.call()
                         return
                     else:
                         self.player.fold()
                 elif self.game.bet < CALL_BET_PRE_FLOP:
                     r = random()
-                    if r>0.9:
+                    if r>0.99:
                         print("raise bet",self.game.raise_bet)
                         self.player.raise_(self.game.raise_bet)
-                        return
-                    elif r>0.6:
-                        self.player.call()
                         return
                     else:
                         self.player.fold()
                 else:
                     self.player.fold()
+'''
 
 class FlopTightPassive(Strategy):
     plable_lev = 1
