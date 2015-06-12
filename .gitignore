@@ -4,7 +4,9 @@ __pycache__/
 *.log
 
 # C extensions
-.so
+#.so
+
+
 
 # Distribution / packaging
 .Python
@@ -55,3 +57,5 @@ docs/_build/
 target/
 
 holdme/_lib.c
+
+target/game2
