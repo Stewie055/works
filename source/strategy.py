@@ -40,7 +40,7 @@ PHIL = {1:['AA','KK','QQ'],
         }
 
 
-TEST_TIME = 3000 #概率计算次数
+TEST_TIME = 1000 #概率计算次数
 CALL_BET_PRE_FLOP = 150 #翻牌前弱牌最大跟注金额
 RAISE_BET_PRE_FLOP = 300 #翻牌前与对方火拼的最大注额
 PROB_IN_STANDBY = 0.92 #极度消极策略中加注的最低胜率
@@ -123,13 +123,15 @@ class Master():
         self.style = style
 
     def pre_action(self):
-        #if self.game.num_players <= 4:
-        #    self.switch("loose")
+        '''
+        if self.game.num_players <= 4:
+            self.switch("loose")
         if self.can_stand_by():
             self.switch("standby")
         else:
             self.switch("tightaggressive")
-        #self.switch("tightaggressive")
+            '''
+        self.switch("tightpassive")
 
     def preflop_act(self):
         self.pre_action()

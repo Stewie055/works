@@ -4,7 +4,7 @@ __pycache__/
 *.log
 
 # C extensions
-*.so
+.so
 
 # Distribution / packaging
 .Python
